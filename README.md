@@ -30,33 +30,41 @@ Once you have a cluster, you can then  use the cloned stack repository to add ot
 underpin template path/my-namespace/my-app 
 ```
 
-What does this do? it will check out a branch with some hash on the target repo and write manifests into the target repo in that branc. there are options for branch name, plan only etc etc. but lets follow the normal path.
-If we say --commit it will also commit the change on the master branch otherwise can get the branch hash that was returned and call 
+What does this do? it will check out a branch with some hash on the target repo and write manifests into the target repo in that branch. there are options for branch name, plan only etc etc. 
+
+Normally underpinnings runs in a pipeline so we do not really template apps one by one except to test. Normally we would run
+
 ```
-underpin commit hash
+#underpin init
+underpin run 
 ```
 
-Now if we look at what happened it might seem strange. Why we (a) template something that would be templated with K or H anyway and then essentially move something from one repo to another? We answering the second part, this is supposed to be part of a build process where we move something from an app repo to an infra repo.
-The second part is an abstraction that underpinnings introduces to intercept app builds to build specifically in different ways and to intercept templating both of which are treated as a specific concern. This enables "values only" apps
+and this would run a configured pipeline to pull from one repo and write to another.
+
+Now if we look at what happened it might seem strange. Why we (a) template something that would be templated with K or H anyway and then essentially move something from one repo to another? In answering the second part, this is supposed to be part of a build process where we move something from an app repo to an infra repo.
+The second part is an abstraction that underpinnings introduces to intercept app builds to build specifically in different ways and to intercept templating, both of which are treated as a specific concern. This enables "values only" apps as will be illustrated in the examples.
 
 an underpinnings values file looks like this
 
 ```
 version:
 metadata:
-  namespace:
-  name:
+  namespace: the k8s or business namespace
+  source-root: where the watched applications are under the repo
+  app-uri: the path for the app under the source - e.g. namespace/modules/app
 repos: 
-  source:
-  target:
+  source: the source repo (apps)
+  target: the target repo (infra)
 module:
-image: 
+image:  the root image e.g. python or the one for the monorepo
 resources:
-    memory:
-    storage:
+    memory: any custom memory to set for app(s)
+    storage: any custom storage to set for app(s)
 conf:
   takes a custom format/spec per module and can be anything. this would be how you choose a different storage class for example
 ```
+
+This can be configured as a core configuration for underpinnings or on a run by run basis. Keep in mind that underpinnings normally run in the context of a Kubernetes Pod but can also be used to test locally against two fixed repos.
 
 # launch the api
 Underpinnings runs in different ways, locally or on cluster. There is a swagger endpoint (knative or Fast API) which is used to receive jobs. You can also ask basic questions about the status of apps. The current version is very crude and just uses blob storage to store data.
@@ -65,10 +73,15 @@ Underpinnings runs in different ways, locally or on cluster. There is a swagger 
 You now have a CLI, a management cluster and a scaffolded cluster project that you can configure. The cluster manifests is simply a clone of this which is for bootstrapping a standard cluster with observability stack.
 One of the applications is the underpinnings workflow. 
 
+## other settings
+- gc, s3 enabled, default bucket underpinnings
+- 
 
 TODO
 - postgres instance for some data
-- 
+- documentation
+- installation tools
+- dockerfile
  
 
 
