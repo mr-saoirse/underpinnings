@@ -1,4 +1,4 @@
-# Underpinnings
+# Underpinnings [DRAFT/WIP]
 
 Underpinnings is an experimental utility for translating between infrastructure K8s Repos and the user application repos that rely on them. What does that even me though?
 This represents a separation of concerns between a managed cluster (probably managed by people who care about how Kubernetes works) and people who just want to deploy into that infrastructure in a sort of X as a Service fashion.
