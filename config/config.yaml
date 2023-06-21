@@ -1,0 +1,8 @@
+version: underpin.io/alpha1
+metadata:
+  namespace: default
+  source-root: samples
+  app-uri: default/deployment
+repos:
+  source: git@github.com:mr-saoirse/underpinnings.git
+  target: git@github.com:mr-saoirse/cloud-stack.git

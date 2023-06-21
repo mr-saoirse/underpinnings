@@ -1,0 +1,6 @@
+module: deployment
+#image:
+resources:
+  memory: 10G
+  storage: 1G
+conf: {}
