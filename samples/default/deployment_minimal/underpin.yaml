@@ -1,5 +1,5 @@
 module: deployment
-#image:
+#image: test
 resources:
   memory: 10G
   storage: 1G

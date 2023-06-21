@@ -1,6 +1,7 @@
 import subprocess
 from underpin import logger
 from pathlib import Path
+from pprint import pprint
 
 UNDERPIN_GIT_ROOT = f"{Path.home()}/.underpin/cloned"
 
@@ -9,20 +10,21 @@ def run_command(command, cwd=None):
     # this does not always work but we are using this convention
     options = command.split(" ")
 
-    logger.debug(f"running command {command}")
+    logger.debug(f"running command {command} in {cwd}")
 
     process = subprocess.Popen(
         options, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=cwd
     )
 
     status = "ok"
-    out = process.stdout.read()
-    if not process.stdout.read():
-        out = process.stderr.read()
+    out, err = process.communicate()
+
+    if not out:
+        out = err
         status = "error"
         logger.warning(out)
 
-    return {"status": status, "data": out}
+    return {"status": status, "data": out.decode().split("\n")}
 
 
 class GitContext:
@@ -43,6 +45,9 @@ class GitContext:
         repo_name = Path(repo).name
         self._local_repo_dir = f"{self._cwd}/{repo_name}"
 
+    def changed_files(self):
+        return self._changes
+
     def checkout(self):
         """ """
 
@@ -61,10 +66,15 @@ class GitContext:
             logger.info(
                 f"Repo exists at {self._local_repo_dir} - ensuring local branch is the one we want and up to date"
             )
-            run_command(f"git checkout {self._branch}")
-            run_command(f"git pull")
-            changes = run_command(f"git diff --name-only origin/main")
-            logger.info(changes)
+            # clean this up either within a context or partial
+            run_command(f"git checkout {self._branch}", cwd=self._local_repo_dir)
+            run_command(f"git fetch", cwd=self._local_repo_dir)
+            run_command(f"git pull", cwd=self._local_repo_dir)
+            changes = run_command(
+                f"git diff --name-only origin/{self._main_branch}",
+                cwd=self._local_repo_dir,
+            )
+
             self._changes = changes
 
     @property

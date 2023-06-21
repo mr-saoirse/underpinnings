@@ -48,8 +48,10 @@ def app_init(
     # but conscious of getting the change set by some means which is one of the main purposes - often the rebased app with master is where the manifest will come from
     # checkout function is used only to test
     # logger.info(checkout(config.source_repo, source_branch, source_local_dir))
-    with GitContext(config.source_repo) as g:
-        pass
+    with GitContext(config.source_repo, branch="sa.test_branch") as g:
+        changes = g.changed_files
+        matched_changes = config.match_app_changes(changes)
+        logger.info(matched_changes)
 
 
 @app.command("run")
