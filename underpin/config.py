@@ -3,10 +3,9 @@ from pathlib import Path
 
 
 class UnderpinConfig:
-
     def __init__(self, uri: str) -> None:
         self._data = {}
-        #todo test s3://
+        # todo test s3://
         with open(uri) as f:
             self._data = yaml.safe_load(f)
 
@@ -16,10 +15,24 @@ class UnderpinConfig:
     def items(self):
         return self._data.items()
 
+    def match_app_changes(self, changes):
+        prefix = self._data.get("metadata", {}).get("source-root")
+
+        changes = [c for c in changes if prefix in c] if prefix else changes
+        changes = set([str(Path(c).parent) for c in changes])
+
+        return changes
+
     @property
     def source_repo(self):
-        #TODO: safey
-        return self['repos']['source']
+        # TODO: safey
+        return self["repos"]["source"]
+
+    @property
+    def target_repo(self):
+        return self["repos"]["target"]
+
+        target_repo
 
     # def get_source_repo_local_dir(self, create=True):
     #     """

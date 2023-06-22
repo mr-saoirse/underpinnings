@@ -5,43 +5,43 @@ from underpin.config import UnderpinConfig
 from underpin.pipeline.default import DefaultPipeline
 from underpin.utils import io
 from underpin import schema
-from underpin.utils.git import clone, app_changes
+from underpin.utils.git import GitContext, app_changes
 from underpin.schema import ChangeSet
-from underpin import logger
+from underpin import logger, UNDERPIN_GIT_ROOT
+import os
 
 app = typer.Typer()
 
 template_app = typer.Typer()
 app.add_typer(template_app, name="template")
 
+
 @template_app.command("create")
 def template_app_validate(
     name: Optional[str] = typer.Option(None, "--name", "-n"),
 ):
-    pass    
+    pass
 
 
 @app.command("init")
 def app_init(
-    source_local_dir: Optional[str] = typer.Option(None, "--source_out_dir", "-o"),
-    source_branch: Optional[str] = typer.Option(None, "--source_branch", "-b"),
+    target_branch: Optional[str] = typer.Option(None, "--target_branch", "-b"),
+    target_local_dir: Optional[str] = typer.Option(None, "--target_out_dir", "-o"),
 ):
     """
-    Either clone a branch, checkout a branch or point to a checked out local branch 
-    source local uses ./underpin by default
-    the source branch is recommended but we can fetch the master branch for testing 
-     or if we want to use it but get the changes based on the diff with the ref branch
-    when the repo exists we automatically try to switch to the branch in the local location or complain
-    we should diff the remote to see if there are changes that need to be pulled with our local branch (master or feature)
-    all of this can be done in the clone op to make sure we know both the changes and the source code
-
+    underpin generates a target repo away from the current repo to write files into and commit
+    the target branch can be auto-generated with a hash in practice
     """
-    config = UnderpinConfig("config/config.yaml")   
 
+    config = UnderpinConfig("config/config.yaml")
+    target_branch = target_branch or "bot.add_manifests"
     logger.info(config._data)
 
-    logger.info(clone(config.source_repo, source_branch, source_local_dir ))
-    
+    with GitContext(config.target_repo, cwd=UNDERPIN_GIT_ROOT) as g:
+        g.create_branch(target_branch)
+        logger.info(f"create target repo to {g}")
+        # if we need to do anything to the target we can here
+
 
 @app.command("run")
 def app_run(
@@ -52,27 +52,23 @@ def app_run(
     """
     we can get a change set from input or the branch and process all apps
     a config file can be passed in order used from the one in the module
-    sha hash is used for the entire build context 
+    sha hash is used for the entire build context
     """
-    config = UnderpinConfig(config_file or "config/config.yaml")  
+    config = UnderpinConfig(config_file or "config/config.yaml")
     """
     the default pipeline could be swapped for other pipelines in future 
     but it may be we only need one pipeline and managed templates
-    """ 
+    """
     pipeline = DefaultPipeline(config)
-    
-    change_set = None
-    if change_set_file:
-        change_set = io.read(change_set_file, type=schema.ChangeSet)
-    else:
-        """
-        we expect that the source is not on master and that the changes are based on the feature branch changes
-        but if the context did not specify a branch then we cannot determine these changes and we need another mode,
-        a mode that specifies the changes to migrate - usually this should be just for testing that we do this
-        """
-        change_set = ChangeSet.from_file_change_set(app_changes(config.local_target_repo))
 
-    pipeline(change_set)
+    target = GitContext(config.target_repo, cwd=UNDERPIN_GIT_ROOT)
+
+    with GitContext(config.source_repo) as g:
+        changes = g.get_changed_files()
+        logger.debug(f"changed files {changes}")
+        pipeline(changes)
+        target.merge()
+
 
 if __name__ == "__main__":
     app()
