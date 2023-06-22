@@ -4,7 +4,7 @@ Underpinnings is an experimental utility to explore a two-repo pattern for migra
 
 Infrastructure repos (IRepos) are managed by Dev Ops people or people that are keen to dive into the management of K8s clusters while applications repos (ARepos) are the realm of application developers who build many applications (on many docker images).
 Microservices systems lead to a profusion of apps and docker images that need to be managed and deployed into Kubernetes infrastructure. Application developers typically do not care about the details of how things are deployed once they have the resources they need to run their applications.
-There are of course many engineers who are happy to work in either space and indeed many times have arrived at good solutions to manage these environments.
+There are of course many engineers who are happy to work in either space and indeed many teams have arrived at good solutions to manage these environments.
 
 
 Underpinnings takes the perspective that special tooling could be useful sitting between ARepos and IRepos and that some patterns and abstractions are worth thinking about. 
