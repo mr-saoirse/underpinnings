@@ -11,6 +11,13 @@ after we determine the change set, we want to know what the rebase version of th
 
 import pytest
 
+# with GitContext(config.source_repo, branch="sa.test_branch") as g:
+#         changes = g.changed_files
+#         matched_changes = config.match_app_changes(changes["data"])
+
+#         # todo - schema for changes
+#         logger.info(f"The following apps have been changed:> {matched_changes}")
+
 
 def test_clone_current_unmerged():
     pass
@@ -21,4 +28,8 @@ def test_clone_current_just_merged():
 
 
 def test_clone_current_merged_old_branch():
+    pass
+
+
+def test_clone_main_branch():
     pass

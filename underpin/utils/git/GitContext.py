@@ -1,9 +1,7 @@
 import subprocess
 from underpin import logger
 from pathlib import Path
-from pprint import pprint
-
-UNDERPIN_GIT_ROOT = f"{Path.home()}/.underpin/cloned"
+from ..io import is_empty_dir
 
 
 def run_command(command, cwd=None):
@@ -20,84 +18,109 @@ def run_command(command, cwd=None):
     out, err = process.communicate()
 
     if not out:
-        out = err
-        status = "error"
-        logger.warning(out)
+        if len(err):
+            out = err
+            status = "error"
+            # hack - i need to fix what is a warning
+            for ok in ["Switched to a new branch", "Cloning into"]:
+                if ok in str(out):
+                    status = "ok"
+            if status != "ok":
+                logger.warning(f"process-> {out}")
+    else:
+        logger.debug(out)
 
     return {"status": status, "data": out.decode().split("\n")}
 
 
+def _branches(data):
+    """
+    category of temp helpers while we structure out command interface for git commands
+    """
+    return [d.replace("*", "").strip() for d in data]
+
+
 class GitContext:
     # for testing using the cloned but this should be null and passed in
-    def __init__(
-        self, repo, branch=None, cwd=UNDERPIN_GIT_ROOT, main_branch="main"
-    ) -> None:
+    def __init__(self, repo, branch=None, cwd=None, main_branch="main") -> None:
         """
         current work directory is current
         """
-        self._cwd = cwd or "."
+        logger.info(f"Enter repo context {repo} -> CWD({cwd or 'local'})")
+
+        self._cwd = cwd
         self._repo = repo
         self._branch = branch or main_branch
-        self._cwd_abs = cwd
         # todo we can discover this
         self._main_branch = main_branch
         self._changes = []
-        repo_name = Path(repo).name
-        self._local_repo_dir = f"{self._cwd}/{repo_name}"
+        self._repo_name = Path(repo).name.split(".")[0]
 
-    def changed_files(self):
-        return self._changes
+        # when we are not specifying a current working directory its because our local is it
+        # the current working di
+        self._local_repo_dir = f"{self._cwd}/{self._repo_name}" if self._cwd else None
+
+    def merge(self):
+        pass
+
+    def get_changed_files(self):
+        r = self("git diff --name-only origin/main")
+        return r["data"]
+
+    def clone(self):
+        if self._branch == self.main_branch_name:
+            return run_command(f"git clone {self._repo}", cwd=self._cwd)
+        return run_command(
+            f"git clone -b {self._branch} {self._repo}",
+            cwd=self._cwd,
+        )
+
+    def create_branch(self, branch_name):
+        r = self(f"git checkout -b {branch_name}")
+        self._branch = branch_name
+        return r
+
+    def __call__(self, command):
+        return run_command(command, cwd=self._local_repo_dir)
 
     def checkout(self):
-        """ """
+        """
+        checkout the branch and determine changes
+        this is done so underpin can generate templates for the changed file
+        """
 
-        existing_source_files = None
-        if Path(self._local_repo_dir).exists():
-            existing_source_files = Path(self._local_repo_dir).iterdir()
-        # if the current directory is empty, clone into
-        if not existing_source_files:
-            logger.info(
-                f"Assuming you want to clone into the empty directory {self._cwd}"
-            )
-            # set branch when cloning so we dont need to switch
-            self.clone()
-        else:
-            print(existing_source_files)
-            logger.info(
-                f"Repo exists at {self._local_repo_dir} - ensuring local branch is the one we want and up to date"
-            )
-            # clean this up either within a context or partial
-            run_command(f"git checkout {self._branch}", cwd=self._local_repo_dir)
-            run_command(f"git fetch", cwd=self._local_repo_dir)
-            run_command(f"git pull", cwd=self._local_repo_dir)
-            changes = run_command(
-                f"git diff --name-only origin/{self._main_branch}",
-                cwd=self._local_repo_dir,
-            )
+        # could rename this to managed i.e. we have a local repo somewhere and we are managing it
+        # when this is empty, it means we are in a normal git context "user managed" - we should make these abstractions cleaner
 
-            self._changes = changes
+        if self._local_repo_dir:
+            if is_empty_dir(self._local_repo_dir):
+                logger.info(
+                    f"Assuming you want to clone into the empty directory {self._cwd}"
+                )
+                # set branch when cloning so we dont need to switch
+                response = self.clone()
+            else:
+                # print(existing_source_files)
+                logger.info(
+                    f"Repo exists at {self._local_repo_dir} - ensure local branch is the one we want and up to date"
+                )
+                self("git branch")
 
     @property
     def main_branch_name(self):
         return self._main_branch
 
-    def clone(self):
-        if self._branch != self.main_branch_name:
-            return run_command(f"git clone {self._repo} {self._cwd}")
-        return run_command(
-            f"git clone -b {self._branch} {self._repo} {self._local_repo_dir}"
-        )
-
-    def rebase(self, main=True, origin=True):
-        pass
+    @property
+    def branch(self):
+        return self._branch
 
     def __enter__(self):
+        # checkout depends on mode
         self.checkout()
 
         return self
 
     def __exit__(self, exc_type, exc_value, exc_traceback):
-        """
-        dump underpin state e.g. changed files and current context for last merged
-        """
-        return True
+        """ """
+
+        return False

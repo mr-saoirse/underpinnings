@@ -1,4 +1,10 @@
 from . import UnderpinTemplate
 
-def generate():
-    return None
+
+class UnderpinTemplateSet:
+    def write(path):
+        return None
+
+
+def generate(app, config):
+    return UnderpinTemplateSet()

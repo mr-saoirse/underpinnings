@@ -18,12 +18,21 @@ class UnderpinConfig:
     def match_app_changes(self, changes):
         prefix = self._data.get("metadata", {}).get("source-root")
 
-        return [c for c in changes if prefix in c] if prefix else changes
+        changes = [c for c in changes if prefix in c] if prefix else changes
+        changes = set([str(Path(c).parent) for c in changes])
+
+        return changes
 
     @property
     def source_repo(self):
         # TODO: safey
         return self["repos"]["source"]
+
+    @property
+    def target_repo(self):
+        return self["repos"]["target"]
+
+        target_repo
 
     # def get_source_repo_local_dir(self, create=True):
     #     """

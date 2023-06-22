@@ -1,88 +1,47 @@
-# Underpinnings [DRAFT/WIP]
+# Underpinnings
 
-Underpinnings is an experimental utility for translating between infrastructure K8s Repos and the user application repos that rely on them. What does that even me though?
-This represents a separation of concerns between a managed cluster (probably managed by people who care about how Kubernetes works) and people who just want to deploy into that infrastructure in a sort of X as a Service fashion.
-The trouble is that within a given org that manages its own infrastructure the boundaries tend to blur. Underpinnings tries, in an opinionated way, to separate those concerns clearly with some patterns. It focuses on two things
+Underpinnings is an experimental utility to explore a two-repo pattern for migrating templated apps from an "applications" repo to a K8s "infrastructure" repo.
 
-- Managing (docker) versions in microservice environments (pinnings)
-- Managing template abstractions (DSL to K8s conversions)
-
-Ultimately this allows for the generation of manifests related to apps in one repo to be sent to another repo (Managed by Argo CD). As such, it takes one very specific and often messy task within an entire CI/CD pipeline and puts some scaffolding around it.
+Infrastructure repos (IRepos) are managed by Dev Ops people or people that are keen to dive into the management of K8s clusters while applications repos (ARepos) are the realm of application developers who build many applications (on many docker images).
+Microservices systems lead to a profusion of apps and docker images that need to be managed and deployed into Kubernetes infrastructure. Application developers typically do not care about the details of how things are deployed once they have the resources they need to run their applications.
+There are of course many engineers who are happy to work in either space and indeed many times have arrived at good solutions to manage these environments.
 
 
-# How to use it
+Underpinnings takes the perspective that special tooling could be useful sitting between ARepos and IRepos and that some patterns and abstractions are worth thinking about. 
+- How to create a separation of concerns between I and A
+- How to create abstract and simple application templates that can be translated into Kubernetes applications
+- How to manage docker and other container builds and their versions when mapping between A and I
 
-Install it with homebrew or pip and run `underpin scaffold <my-cloud>`. You will be asked to specify
-- source repo
-- target repo  
-- aws key (only tested for AWS for now)
-- OPEN AI key (optional)
+## Usage
 
-If you want to get the cluster stack you can clone it. Part of this is creating a management cluster.
-If you want to generate a cluster, a Pulumi up command can be used  to generate a cluster on AWS but it is expected (recommended) that you already have a cluster.
-If you do generate a cluster or bring your own, it simply needs ArgoCD to be installed. 
-Once you have a cluster, you can then  use the cloned stack repository to add other things but that is entirely optional. 
+Underpinning create a target repo for infrastructure. Consider a basic config file
 
-- If you look at the sample cluster, it is assumed there is an app-manifests folder in your target repo. You can configure that through an environment variable to be any folder name or override it when submitting commands.
-- Underpinnings can take jobs and build apps that get pushed to your management cluster. You can test this wth the cli but usually this will run as a workflow on your management cluster. 
-- here is a sample command
-```
-underpin template path/my-namespace/my-app 
-```
-
-What does this do? it will check out a branch with some hash on the target repo and write manifests into the target repo in that branch. there are options for branch name, plan only etc etc. 
-
-Normally underpinnings runs in a pipeline so we do not really template apps one by one except to test. Normally we would run
-
-```
-#underpin init
-underpin run 
-```
-
-and this would run a configured pipeline to pull from one repo and write to another.
-
-Now if we look at what happened it might seem strange. Why we (a) template something that would be templated with K or H anyway and then essentially move something from one repo to another? In answering the second part, this is supposed to be part of a build process where we move something from an app repo to an infra repo.
-The second part is an abstraction that underpinnings introduces to intercept app builds to build specifically in different ways and to intercept templating, both of which are treated as a specific concern. This enables "values only" apps as will be illustrated in the examples.
-
-an underpinnings values file looks like this
-
-```
-version:
+```yaml
+version: underpin.io/alpha1
 metadata:
-  namespace: the k8s or business namespace
-  source-root: where the watched applications are under the repo
-  app-uri: the path for the app under the source - e.g. namespace/modules/app
-repos: 
-  source: the source repo (apps)
-  target: the target repo (infra)
-module:
-image:  the root image e.g. python or the one for the monorepo
-resources:
-    memory: any custom memory to set for app(s)
-    storage: any custom storage to set for app(s)
-conf:
-  takes a custom format/spec per module and can be anything. this would be how you choose a different storage class for example
+  namespace: default
+  source-root: samples
+  app-uri: default/deployment
+repos:
+  source: git@github.com:mr-saoirse/underpinnings.git
+  target: git@github.com:mr-saoirse/cloud-stack.git
+
 ```
 
-This can be configured as a core configuration for underpinnings or on a run by run basis. Keep in mind that underpinnings normally run in the context of a Kubernetes Pod but can also be used to test locally against two fixed repos.
+Underpinnings will initialize the target repo into `~/.underpin/cloned/<target>`
 
-# launch the api
-Underpinnings runs in different ways, locally or on cluster. There is a swagger endpoint (knative or Fast API) which is used to receive jobs. You can also ask basic questions about the status of apps. The current version is very crude and just uses blob storage to store data.
+```
+underpin init
+```
 
-## After the basic setup
-You now have a CLI, a management cluster and a scaffolded cluster project that you can configure. The cluster manifests is simply a clone of this which is for bootstrapping a standard cluster with observability stack.
-One of the applications is the underpinnings workflow. 
+Then a pipeline can be run with
 
-## other settings
-- gc, s3 enabled, default bucket underpinnings
-- 
+```
+underpin run
+```
 
-TODO
-- postgres instance for some data
-- documentation
-- installation tools
-- dockerfile
- 
+which will translates applications under  `source-root: samples` and "hydrate" applications for K8s, build any docker images, update image manifests, write to the target IRepo and push. ArgoCD will then manage the applications in the IRepo, syncing to the cluster(s)
+
 
 
 

@@ -103,7 +103,7 @@ def checkout(
         # TODO testing inline with the gh tool that the PR on the branch agrees with the diff
 
         logger.info(f"Checking out a rebase branch and rebase origin main branch")
-        options = ["git", "checkout", "-b", f"{branch}.rebased"]
+        options = ["git", "switch", "-c", f"{branch}.rebased"]
         process = subprocess.Popen(
             options, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=expected_wd
         )
