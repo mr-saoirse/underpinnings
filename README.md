@@ -43,6 +43,22 @@ underpin run
 which will translates applications under  `source-root: samples` and "hydrate" applications for K8s, build any docker images, update image manifests, write to the target IRepo and push. ArgoCD will then manage the applications in the IRepo, syncing to the cluster(s)
 
 
+## running in the workflow
 
+The above is for testing. In the workflow the following occurs
+- we clone the ARepo
+- we Build any master docker images in the ARepo
+- we init the target IRepo on a volume 
+- We fan out over changed apps with the parameters to process each app and write to the IRepo
+  - we run `underpin run -a=app-name -o tmp/context/app/build`
+  - we build the docker app from that /tmp/context location, which is a self-contained app  
+     - this uses Kaniko as the build provider or Bentoml etc.
+  - we set kustomize image on the app for whatever build context and image is needed
+  - we copy to app target in the IRepo
+- we fan in and merge the IRepo changes
 
-
+## running as a GitHub action
+### mode 1: trigger the workflow
+In this mode, the cloud native in you may want to keeply separate your build processes into something that can be run and tested on K8s. Alternatively see mode 2
+### mode 2: run as inline action on app folders
+In mode 2 we use just running underpin in a git action (which runs on a docker image). Here we need to pass app changes into the underpin step and it will transform and generate manifests that get pushed to the target repo (for all app changes). 

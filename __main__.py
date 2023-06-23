@@ -15,6 +15,29 @@ app = typer.Typer()
 template_app = typer.Typer()
 app.add_typer(template_app, name="template")
 
+infra_app = typer.Typer()
+app.add_typer(infra_app, name="infra")
+
+
+@infra_app.command("update")
+def infra_app_update(
+    config_file: Optional[str] = typer.Option(None, "--config", "-c"),
+    dir: Optional[str] = typer.Option(None, "--dir", "-d"),
+    pins: Optional[str] = typer.Option(None, "--pinnings", "-p"),
+):
+    """
+    we can provide a config source for how the image tags are to be updated
+    run kustomize on all
+    and commit the repo
+    """
+    config = UnderpinConfig(config_file or "config/config.yaml")
+
+    # templates.update_images(pins)
+
+    target = GitContext(config.target_repo, cwd=UNDERPIN_GIT_ROOT)
+
+    return target.merge()
+
 
 @template_app.command("create")
 def template_app_validate(
@@ -67,8 +90,16 @@ def app_run(
         changes = g.get_changed_files()
         logger.debug(f"changed files {changes}")
         pipeline(changes)
-        target.merge()
+
+    # actually we dont merge always here because we need to run the images but this is good for testing
+    # in practice we export the manifests and then later when we update the manifests with the image tags we push to the target repo
+    target.merge()
 
 
 if __name__ == "__main__":
     app()
+
+# TODO
+# 1 work on some templates and generate an action plan
+# 2 execute build actions
+# 3 run kustomize as part of actions

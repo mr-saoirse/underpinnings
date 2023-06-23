@@ -57,10 +57,18 @@ class GitContext:
         self._repo_name = Path(repo).name.split(".")[0]
 
         # when we are not specifying a current working directory its because our local is it
-        # the current working di
         self._local_repo_dir = f"{self._cwd}/{self._repo_name}" if self._cwd else None
 
     def merge(self):
+        """
+        use
+
+        git push origin bot/branch123
+        #this uses the branch we are on for the github provider
+        gh pr create --title "Manifests generated from the ARepo" --body "List of apps changed"
+        gh pr merge --auto --rebase
+
+        """
         pass
 
     def get_changed_files(self):

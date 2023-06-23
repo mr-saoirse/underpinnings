@@ -1,10 +1,11 @@
 from . import UnderpinTemplate
+from .UnderpinTemplate import dispatcher
 
 
 class UnderpinTemplateSet:
-    def write(path):
+    def write(self, path):
         return None
 
 
 def generate(app, config):
-    return UnderpinTemplateSet()
+    return dispatcher(app, config)

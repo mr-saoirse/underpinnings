@@ -1,6 +1,9 @@
 from ..config import UnderpinConfig
 from .. import templates
-from underpin import logger
+from underpin import logger, UNDERPIN_GIT_ROOT
+from pathlib import Path
+
+TARGET_APP_ROOT = "app-manifests"
 
 
 class DefaultPipeline:
@@ -19,7 +22,13 @@ class DefaultPipeline:
             logger.info(f"Processing app:> {app_source}")
             # generate uses the underline template generator to generate a set
             # which has write function to write all files to the target repo
-            # templates.generate(app_source, self.context).write(self.config.target_repo)
+            target_dir = app_source.replace(self.config.app_root, TARGET_APP_ROOT)
+            full_target_root = (
+                f"{UNDERPIN_GIT_ROOT}/{self.config.target_repo_name}/{target_dir}"
+            )
+
+            Path(full_target_root).mkdir(parents=True, exist_ok=True)
+            templates.generate(app_source, self.config).write(full_target_root)
 
     def __call__(self, changes, **kwargs):
         return self.run(changes, **kwargs)
