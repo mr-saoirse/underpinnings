@@ -1,8 +1,16 @@
+#the basic config for underpin. apps have a similar config that extend this
 version: underpin.io/alpha1
 metadata:
+  #the namespace can sometimes be inferred from app path
   namespace: default
+  #all apps are assumed to live under this root and are transferred into app-manifests respecting the app folder structure from here
   source-root: samples
+  #the app uri from the source root
   app-uri: default/deployment
+#each app can override this - some apps can build a docker image that is based from this. could be monorepo image or python base etc.
+image: default.repo.base_image:latest
 repos:
+  #the source repo is the Applications Repo from where app descriptors are read
   source: git@github.com:mr-saoirse/underpinnings.git
+  #the target repo is the infrastructure repo to where hydrated manifests are sent
   target: git@github.com:mr-saoirse/cloud-stack.git

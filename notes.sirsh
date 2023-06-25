@@ -28,3 +28,6 @@ TODO
 
  Refine
  - The processes and the git interactions should be studied a bit more. 
+
+ poetry publish --build
+ #https://stackoverflow.com/questions/53835198/integrating-python-poetry-with-docker
