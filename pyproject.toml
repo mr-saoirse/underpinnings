@@ -1,0 +1,28 @@
+[tool.poetry]
+name = "underpin"
+version = "0.1.5"
+description = "tools for sending app modules to k8s infrastructure and managing app versions"
+authors = ["mr-saoirse <amartey@gmail.com>"]
+license = "MIT License"
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.10"
+typer = {extras = ["all"], version = "^0.9.0"}
+loguru = "^0.7.0"
+pydantic = "^1.10.9"
+
+
+[tool.poetry.group.test.dependencies]
+pytest = "^6.0.0"
+pytest-mock = "*"
+
+[tool.poetry.group.docs.dependencies]
+mkdocs = "*"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry.scripts]
+underpin = "underpin.__main__:app"

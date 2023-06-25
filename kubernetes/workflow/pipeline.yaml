@@ -1,0 +1,195 @@
+# kubectl create secret generic git-creds \
+#     --from-file=ssh=$HOME/.ssh/id_rsa \
+#     --from-file=known_hosts=$HOME/.ssh/known_hosts
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kaniko-config
+data:
+  config.json: |-
+    { "credsStore": "ecr-login" }
+---
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: ci-template-test
+
+spec:
+  ttlStrategy:
+    secondsAfterCompletion: 60
+    secondsAfterSuccess: 60
+    secondsAfterFailure: 360
+  arguments:
+    parameters:
+      - name: source-repo
+        value: git@github.com:resonance/res-data-platform.git
+      - name: target-repo
+        value: git@github.com:resonance/res-data-platform.git
+      - name: branch
+        value: main
+      - name: change-data
+        value: |-
+          [
+            {"dockerfile": "/root/res/res-data-platform.git/res/docker/res-data/Dockerfile", "other-props" : "other-values"},
+            {"dockerfile": "/root/res/res-data-platform.git/res/docker/res-data/Dockerfile", "other-props" : "other-values"}
+          ]
+  entrypoint: pipeline
+  #prepare a volume for the entire workflow
+  volumeClaimTemplates:
+    - metadata:
+        name: repo-work-dir
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 1Gi
+  #mount secrets for the workflow
+  volumes:
+    # - name: repo-work-dir
+    #   emptyDir: {}
+    - name: git-secret
+      secret:
+        defaultMode: 256
+        secretName: git-creds # your-ssh-key
+    - name: kaniko-config
+      configMap:
+        name: kaniko-config
+
+  #start the sequence
+  templates:
+    - name: pipeline
+      steps:
+        - - name: check-repo
+            template: check-repo
+        - - name: build-docker
+            template: build-docker
+        - - name: test
+            template: test-image
+        #use underpin to write the manifests to the volume
+        - - name: underpin
+            template: underpin
+            withParam: "{{workflow.parameters.change-data}}"
+            arguments:
+              parameters:
+                - name: action
+                  value: "run"
+                - name: payload
+                  value: "{{item}}"
+        #conditional - build dispatcher
+        - - name: build-docker-mapper
+            template: build-docker
+            withParam: "{{workflow.parameters.change-data}}"
+            arguments:
+              parameters:
+                - name: dockerfile
+                  value: "{{item.image}}"
+        #use underpin to merge to the infrastructure repo
+        - - name: merge
+            template: merge
+            arguments:
+              parameters:
+                - name: action
+                  value: "infra update"
+
+    - name: check-repo
+      container:
+        image: alpine:latest
+        command: [sh, -c]
+        args:
+          [
+            "echo getting message from volume; touch /root/hi.txt; ls mnt ; echo --------- ;  ls root ; echo --------- ;ls /root/res/  > ls.txt; cat ls.txt;",
+          ]
+        volumeMounts:
+          - name: repo-work-dir
+            mountPath: /root ##
+          - name: git-secret
+            mountPath: /etc/git-secret ##
+
+      #this is the git fetch magic as an init container in the first step
+      initContainers:
+        - image: k8s.gcr.io/git-sync:v3.1.6
+          args:
+            - "--repo={{workflow.parameters.source-repo}}"
+            - "--wait=1200"
+            - "--max-sync-failures=3"
+            - "--timeout=200"
+            - "--root=/root/res"
+            - "--branch=main"
+            - "--ssh"
+            - "--one-time"
+          name: git-data
+          volumeMounts:
+            - name: repo-work-dir
+              mountPath: /root ##
+            - name: git-secret
+              mountPath: /etc/git-secret
+
+      securityContext:
+        runAsUser: 0 # to allow read of ssh key
+
+    - name: build-docker
+      inputs:
+        parameters:
+          - name: dockerfile
+            value: /root/res/res-data-platform.git/res/docker/res-data/Dockerfile
+      container:
+        # image: alpine:latest
+        # command: [sh, -c]
+        # args:
+        #   [
+        #     "echo getting message from volume; ls mnt ; echo --------- ;  ls root ; echo --------- ;ls /root/res/  > ls.txt; cat ls.txt",
+        #   ]
+        image: gcr.io/kaniko-project/executor:v1.9.0-debug
+        imagePullPolicy: Always
+        command: ["/kaniko/executor"]
+        #if we set cache true we should make a container update
+        args:
+          [
+            "--dockerfile={{inputs.parameters.dockerfile}}",
+            "--context=/root/res/res-data-platform.git/",
+            "--destination=286292902993.dkr.ecr.us-east-1.amazonaws.com/res-data:test-kaniko",
+            "--cache=false",
+          ]
+        volumeMounts:
+          - name: repo-work-dir
+            mountPath: /root ##
+          - name: git-secret
+            mountPath: /etc/git-secret ##
+
+    - name: test-image
+      container:
+        image: 286292902993.dkr.ecr.us-east-1.amazonaws.com/res-data:test-kaniko
+        command: [pytest]
+        args: [".", "-m not (data or slow or service or media)"]
+        # envFrom:
+        #   - configMapRef:
+        #       name: res-data-env
+
+    - name: underpin
+      inputs:
+        parameters:
+          - name: action
+            value: init
+          - name: payload
+            value: "{}"
+
+      container:
+        image: mrsaoirse/underpinnings:latest
+        command: [underpin]
+        #the volume root is set with underpin home the we look for the source and target root at this location
+        args:
+          [
+            "{{ input.parameters.action }}",
+            "--source-dir",
+            "/root",
+            "--job",
+            "'{{ input.parameters.payload }}'",
+            "--source_repo",
+            "{{ workflow.parameters.source-repo }}",
+            "--target",
+            "{{ workflow.parameters.target-repo }}",
+          ]
+
+        volumeMounts:
+          - name: repo-work-dir
+            mountPath: /root ##
