@@ -12,7 +12,7 @@ data:
 apiVersion: argoproj.io/v1alpha1
 kind: WorkflowTemplate
 metadata:
-  name: ci-template-test
+  name: ci-pipeline-underpin
 
 spec:
   ttlStrategy:
@@ -22,22 +22,21 @@ spec:
   arguments:
     parameters:
       - name: source-repo
-        value: git@github.com:resonance/res-data-platform.git
+        value: git@github.com:mr-saoirse/underpinnings.git
       - name: target-repo
-        value: git@github.com:resonance/res-data-platform.git
+        value: git@github.com:mr-saoirse/cloud-stack.git
       - name: branch
         value: main
-      - name: change-data
+      - name: app-jobs
         value: |-
           [
-            {"dockerfile": "/root/res/res-data-platform.git/res/docker/res-data/Dockerfile", "other-props" : "other-values"},
-            {"dockerfile": "/root/res/res-data-platform.git/res/docker/res-data/Dockerfile", "other-props" : "other-values"}
+            {"app-dir" : "apps/deployment_minimal"}
           ]
   entrypoint: pipeline
   #prepare a volume for the entire workflow
   volumeClaimTemplates:
     - metadata:
-        name: repo-work-dir
+        name: app-dir
       spec:
         accessModes: ["ReadWriteOnce"]
         resources:
@@ -97,11 +96,11 @@ spec:
         command: [sh, -c]
         args:
           [
-            "echo getting message from volume; touch /root/hi.txt; ls mnt ; echo --------- ;  ls root ; echo --------- ;ls /root/res/  > ls.txt; cat ls.txt;",
+            "echo getting message from volume; touch /app/hi.txt; ls mnt ; echo --------- ;  ls root ; echo --------- ;ls /app/underpin/  > ls.txt; cat ls.txt;",
           ]
         volumeMounts:
-          - name: repo-work-dir
-            mountPath: /root ##
+          - name: app-dir
+            mountPath: /app ##
           - name: git-secret
             mountPath: /etc/git-secret ##
 
@@ -113,14 +112,14 @@ spec:
             - "--wait=1200"
             - "--max-sync-failures=3"
             - "--timeout=200"
-            - "--root=/root/res"
+            - "--root=/app/"
             - "--branch=main"
             - "--ssh"
             - "--one-time"
           name: git-data
           volumeMounts:
-            - name: repo-work-dir
-              mountPath: /root ##
+            - name: app-dir
+              mountPath: /app ##
             - name: git-secret
               mountPath: /etc/git-secret
 
@@ -131,7 +130,7 @@ spec:
       inputs:
         parameters:
           - name: dockerfile
-            value: /root/res/res-data-platform.git/res/docker/res-data/Dockerfile
+            value: /app/underpin/Dockerfile
       container:
         # image: alpine:latest
         # command: [sh, -c]
@@ -146,21 +145,21 @@ spec:
         args:
           [
             "--dockerfile={{inputs.parameters.dockerfile}}",
-            "--context=/root/res/res-data-platform.git/",
-            "--destination=286292902993.dkr.ecr.us-east-1.amazonaws.com/res-data:test-kaniko",
+            "--context=/app/underpin",
+            "--destination=mrsaoirse/underpinnings:latest:test-kaniko",
             "--cache=false",
           ]
         volumeMounts:
-          - name: repo-work-dir
-            mountPath: /root ##
+          - name: app-dir
+            mountPath: /app ##
           - name: git-secret
             mountPath: /etc/git-secret ##
 
     - name: test-image
       container:
-        image: 286292902993.dkr.ecr.us-east-1.amazonaws.com/res-data:test-kaniko
+        image: mrsaoirse/underpinnings:latest:test-kaniko
         command: [pytest]
-        args: [".", "-m not (data or slow or service or media)"]
+        args: ["."]
         # envFrom:
         #   - configMapRef:
         #       name: res-data-env
@@ -170,26 +169,26 @@ spec:
         parameters:
           - name: action
             value: init
-          - name: payload
-            value: "{}"
+          - name: app-dir
+            value: "/"
 
       container:
         image: mrsaoirse/underpinnings:latest
         command: [underpin]
         #the volume root is set with underpin home the we look for the source and target root at this location
-        args:
-          [
+        args: [
             "{{ input.parameters.action }}",
-            "--source-dir",
-            "/root",
-            "--job",
-            "'{{ input.parameters.payload }}'",
-            "--source_repo",
+            #args
+            "--sha",
+            "{{ workflow.parameters.sha }}",
+            "--app-dir",
+            "{{ input.parameters.app-dir }}",
+            "--source-repo",
             "{{ workflow.parameters.source-repo }}",
-            "--target",
+            "--target-repo",
             "{{ workflow.parameters.target-repo }}",
           ]
 
         volumeMounts:
-          - name: repo-work-dir
-            mountPath: /root ##
+          - name: app-dir
+            mountPath: /app ##

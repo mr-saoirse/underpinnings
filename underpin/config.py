@@ -13,11 +13,20 @@ def _config_template_simple(source, target, image=None):
 
 
 class UnderpinConfig:
-    def __init__(self, uri: str) -> None:
+    def __init__(self, uri: str, source_repo=None, target_repo=None) -> None:
         self._data = {}
         # todo test s3://
         with open(uri) as f:
             self._data = yaml.safe_load(f)
+        if "repos" not in self._data:
+            self._data["repos"] = {}
+
+        if source_repo:
+            self._data["source"] = source_repo
+        if target_repo:
+            self._data["target"] = source_repo
+
+        # rewrite config
 
     @staticmethod
     def configure():

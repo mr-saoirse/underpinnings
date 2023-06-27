@@ -1,0 +1,8 @@
+#docker run -it --rm -v ~/.ssh:/home/user/.ssh:ro \
+
+version: '3.7'
+services:
+  test:
+    image: ssh-test
+    volumes:
+      - ~/.ssh:/home/user/.ssh:ro

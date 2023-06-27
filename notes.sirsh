@@ -31,3 +31,6 @@ TODO
 
  poetry publish --build
  #https://stackoverflow.com/questions/53835198/integrating-python-poetry-with-docker
+
+ https://dev.to/iamtekson/publish-package-to-pypi-and-release-new-version-using-github-actions-108k
+ https://www.freecodecamp.org/news/docker-mount-volume-guide-how-to-mount-a-local-directory/
