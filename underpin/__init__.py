@@ -6,4 +6,3 @@ import os
 
 UNDERPIN_GIT_ROOT = f"{Path.home()}/.underpin/cloned"
 CONFIG_HOME = f"{Path.home()}/.underpin/config.yaml"
-UNDERPIN_MOUNTED_SOURCE_DIR = os.environ.get("UNDERPIN_APP_DIR", "/app/apps")

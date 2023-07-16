@@ -1,3 +1,18 @@
+"""
+For simplicity it is assumed that source and target repos will live in
+/HOME/.underpin/cloned/[REPO.git]
+For example, underpinning is an example source repo which would live in K8s at
+/root/.underpin/underpinnings.git
+
+This simple thing is easy to test and then in the following scenarios we use symlinks or volume mounts
+- local dev, dev project symlinked to /HOME/.underpin/cloned/project.git/
+- docker or K8s volume mounts to /HOME/.underpin/cloned/project.git/
+
+For example do
+ln -s /Users/sirsh/code/mr_saoirse/underpinnings ~/.underpin/cloned/underpinnings
+
+"""
+
 import typer
 from typing import Optional
 from pathlib import Path
@@ -7,11 +22,11 @@ from underpin.utils import io
 from underpin import schema
 from underpin.utils.git import GitContext, app_changes
 from underpin.schema import ChangeSet
-from underpin import logger, UNDERPIN_GIT_ROOT, CONFIG_HOME, UNDERPIN_MOUNTED_SOURCE_DIR
+from underpin import logger, UNDERPIN_GIT_ROOT, CONFIG_HOME
 from underpin.utils.io import run_command
 from underpin.utils import generate_markdown_table
 from json import loads as json_loads
-
+from glob import glob
 
 app = typer.Typer()
 
@@ -54,36 +69,98 @@ app.add_typer(build_app, name="build")
 #     # run_command("kustomize set-image {action.kustomization.image}")
 
 
-@infra_app.command("update")
-def infra_app_update(
-    sha: Optional[str] = typer.Option(None, "--sha-hash", "-h"),
+@app.command("update")
+def app_update(
+    sha: Optional[str] = typer.Option(None, "--sha", "-h"),
     app_dir: Optional[str] = typer.Option(None, "--app-dir", "-d"),
     source_repo: Optional[str] = typer.Option(None, "--source-repo", "-s"),
     target_repo: Optional[str] = typer.Option(None, "--target-repo", "-t"),
 ):
     """
-    we can provide a config source for how the image tags are to be updated
-    run kustomize on all
-    and commit the repo
+    Mirroring the pipeline runner, here we can determine actions for all apps and push changes to target
+    By default we do not need to inspect what happened at source and just commit whatever is in our branch
+    But we leave some scaffolding here to think more about it
     """
-    if job:
-        job = json_loads(job)
-        logger.info(f"Loaded job {job}")
+    if app_dir == "":
+        app_dir = None
 
+    # if not Path(CONFIG_HOME).is_file():
+    #     UnderpinConfig.configure(source_repo, target_repo)
+
+    # internal generate config so need for config - test file exists
+    # manage the paths for source and target based on app dir context
     config = UnderpinConfig(
         CONFIG_HOME, source_repo=source_repo, target_repo=target_repo
     )
+    logger.info(
+        f"{config.source_repo}->{config.target_repo} using hash {sha} for app {app_dir}"
+    )
 
-    # templates.update_images(pins)
+    # map app dir as filter to the app manifest - it is usually written relative to the source repo
+    with GitContext(config.source_repo) as source:
+        app_actions = []  # underpin report
+        # changes = DefaultPipeline(config).map_changes_to_target_changes(changes)
 
-    # get the underpin report which will also be archived somewhere
-    app_actions = []
-
-    target = GitContext(config.target_repo, cwd=UNDERPIN_GIT_ROOT)
-
+    target = GitContext(config.target_repo)
+    changes = target.get_changes() if not app_dir else source.sub_folders(app_dir)
+    logger.info(f"target app changes: {changes}")
     return target.merge(
         pr_change_note=generate_markdown_table(app_actions, "Applied Underpin Actions")
     )
+
+
+@app.command("run")
+def app_run(
+    sha: Optional[str] = typer.Option(None, "--sha", "-h"),
+    app_dir: Optional[str] = typer.Option(None, "--app-dir", "-d"),
+    source_repo: Optional[str] = typer.Option(None, "--source-repo", "-s"),
+    target_repo: Optional[str] = typer.Option(None, "--target-repo", "-t"),
+):
+    """
+    sha: the sha is a branch id used to tag docker images and target branches
+    app_dir: is an optional parameter but one used mostly in production.
+             For dev it can be omitted and we operate on the git context change files
+             In production we would pass a change set from upstream process
+             The app dir can be inferred within a source repo but also mapped to a target repo app-manifest
+    source_repo: is the the Applications Git Repo (ARepo) that we generate apps from
+    target_repo: is the the Infrastructure Git Repo (IRepo) that we send app templates to
+
+    The basic runner can be used for dev, docker or k8 simple mode
+    - for dev operate on a branch and template changed apps
+    - for docker, do the same but mount the local
+    - for K8s, workflow should pass an app dir
+
+    """
+
+    # TODO refactor config so it does not need to exist
+    config = UnderpinConfig(
+        CONFIG_HOME, source_repo=source_repo, target_repo=target_repo
+    )
+    logger.info(
+        f"{config.source_repo}->{config.target_repo} using hash {sha} for app {app_dir}"
+    )
+
+    """
+    checkout the target repo to which we send manifests
+    """
+    with GitContext(config.target_repo, branch=sha or "test") as target:
+        target.checkout()
+
+    """
+    this works for docker or local dev - we can mount a local git repo to wherever the app dir is
+    for kubernetes we can also point the app dir to the application(s) location where the (source) git repo is cloned
+    """
+    with GitContext(config.source_repo, cwd=app_dir) as source:
+        """
+        we can navigate anywhere into a git repo and get changes or all apps from that root
+        this is a simple strategy to test two different modes which in practice may have different entrypoints
+        """
+        changes = source.get_changes() if not app_dir else source.sub_folders(app_dir)
+        pipeline = DefaultPipeline(config)
+        pipeline(changes)
+
+    # this output should by pydantic->json and collected in argo workflow etc.
+    return {"job deets"}
 
 
 # @template_app.command("create")
@@ -118,8 +195,8 @@ def infra_app_update(
 #         # if we need to do anything to the target we can here
 
 
-@app.command("run")
-def app_run(
+@app.command("run_old")
+def app_run_old(
     sha: Optional[str] = typer.Option(None, "--sha-hash", "-h"),
     app_dir: Optional[str] = typer.Option(None, "--app-dir", "-d"),
     source_repo: Optional[str] = typer.Option(None, "--source-repo", "-s"),
@@ -177,7 +254,7 @@ def app_run(
 
 
 @app.command("test")
-def app_run(
+def app_run_test(
     sha: Optional[str] = typer.Option(None, "--sha-hash", "-h"),
     app_dir: Optional[str] = typer.Option(None, "--app-dir", "-d"),
     source_repo: Optional[str] = typer.Option(None, "--source-repo", "-s"),

@@ -16,6 +16,9 @@ class UnderpinConfig:
     def __init__(self, uri: str, source_repo=None, target_repo=None) -> None:
         self._data = {}
         # todo test s3://
+
+        if not Path(uri).is_file() and source_repo is not None:
+            UnderpinConfig.configure(source_repo=source_repo, target_repo=target_repo)
         with open(uri) as f:
             self._data = yaml.safe_load(f)
         if "repos" not in self._data:
@@ -29,14 +32,16 @@ class UnderpinConfig:
         # rewrite config
 
     @staticmethod
-    def configure():
+    def configure(source_repo=None, target_repo=None):
         logger.info(
-            "Environment needs to be configured. Enter the source and target git repos below..."
+            "Environment needs to be configured. Enter or pass in the source and target git repos below..."
         )
-        s = input("Source repo:")
-        t = input("Target repo:")
+        s = source_repo or input("Source repo:")
+        t = target_repo or input("Target repo:")
 
         if s and t:
+            logger.info(f"Writing to {CONFIG_HOME}")
+            Path(CONFIG_HOME).parent.mkdir(exist_ok=True, parents=True)
             write(_config_template_simple(s, t), CONFIG_HOME)
 
     def __getitem__(self, key: str):

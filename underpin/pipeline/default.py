@@ -10,7 +10,7 @@ class DefaultPipeline:
     def __init__(self, config: UnderpinConfig) -> None:
         self.config = config
 
-    def run(self, changes, **kwargs):
+    def run(self, git_changes, **kwargs):
         """
         this simplest of pipelines will use the context to determine how to copy templates from a source
         and write them into the target location in the checkout repo following some conventions
@@ -18,7 +18,7 @@ class DefaultPipeline:
         this results in manifests being written
         """
 
-        for app_source in self.config.match_app_changes(changes):
+        for app_source in self.config.match_app_changes(git_changes):
             logger.info(f"Processing app:> {app_source}")
             # generate uses the underline template generator to generate a set
             # which has write function to write all files to the target repo
@@ -30,5 +30,5 @@ class DefaultPipeline:
             Path(full_target_root).mkdir(parents=True, exist_ok=True)
             templates.generate(app_source, self.config).write(full_target_root)
 
-    def __call__(self, changes, **kwargs):
-        return self.run(changes, **kwargs)
+    def __call__(self, git_changes, **kwargs):
+        return self.run(git_changes, **kwargs)

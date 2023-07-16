@@ -3,13 +3,12 @@ import subprocess
 from typing import Any
 from underpin import logger, UNDERPIN_GIT_ROOT
 from underpin.utils import split_string_with_quotes
-from ..io import is_empty_dir
+from ..io import list_nested_folders
+from glob import glob
 
 
 class GitContext:
-    def __init__(
-        self, origin_uri, local_dir=None, branch=None, main_branch="main", **kwargs
-    ) -> None:
+    def __init__(self, origin_uri, branch=None, main_branch="main", **kwargs) -> None:
         """
         The git context is expected to initialize into a location where the origin repo has already been cloned
         This could be
@@ -30,10 +29,34 @@ class GitContext:
         """
         self._main_branch = main_branch
         self._origin_uri = origin_uri
-        self._local_dir = local_dir or Path.cwd()
         self._repo_name = self._origin_uri.split("/")[-1].split(".")[0]
+
+        dirs = [f for f in glob(f"{UNDERPIN_GIT_ROOT}/*") if self._repo_name in f]
+        if len(dirs) != 1:
+            raise Exception(
+                f"Multiple matching repos in the UNDERPIN ROOT not currently supported - there can only be one repo matching {self._repo_name} or {self._repo_name}.git but found {dirs}"
+            )
+
+        self._local_dir = (
+            dirs[0] if len(dirs) else f"{UNDERPIN_GIT_ROOT}/{self._repo_name}"
+        )
+        logger.info(
+            f"Assumed local directory {self._local_dir} for repo {self._origin_uri}"
+        )
         self._branch = branch or main_branch
-        self._repo_info = self._get_repo_info()
+        self._branches = []
+        try:
+            self._repo_info = self._get_repo_info()
+        except:
+            logger.warning(
+                f"Unable to get the repo info in {self._local_dir}. You may need to clone or change to a valid local directory context"
+            )
+
+    def sub_folders(self, dir):
+        return list(list_nested_folders(dir))
+
+    def __call__(self, command: str, cwd=None) -> Any:
+        return self._run_command(command, cwd=cwd or self._local_dir)
 
     # def __call__(self, command):
     #     return run_command(command, cwd=self._local_repo_dir)
@@ -44,12 +67,11 @@ class GitContext:
         - but for the source repo actually its assumed we are already in the correct context and this is for validation
         """
         # checkout depends on mode
-        self.checkout()
+        # self.checkout()
+
+        # if not git context raise error
 
         return self
-
-    def __call__(self, command: str, cwd=None) -> Any:
-        return self._run_command(command, cwd=cwd or self._local_dir)
 
     def __exit__(self, exc_type, exc_value, exc_traceback):
         """ """
@@ -65,6 +87,11 @@ class GitContext:
         self._current_repo = self.run_command_single_result(
             "git config --get remote.origin.url"
         )
+
+        self._git_root_folder = self.run_command_single_result(
+            "git rev-parse --show-topleveloplevel"
+        )
+        self._sha = self.run_command_single_result("git rev-parse HEAD ")
         self._changes = self.get_changes()
 
         return {}
@@ -79,15 +106,18 @@ class GitContext:
 
     @property
     def local_repo_dir(self):
-        return f"{self._local_dir}/{self._repo_name}"
+        return self._git_root_folder
 
-    def get_changes(self, against_origin=False):
+    def get_changes(self, prefix=None, against_origin=False):
         r = (
             self("git diff --name-only main")
             if not against_origin
             else self("git diff --name-only origin/main")
         )
-        return r["data"]
+        changes = r["data"]
+        if prefix:
+            return [c for c in changes if c[: len(prefix)] == prefix]
+        return changes
 
     def ensure_branch(self, branch):
         pass
@@ -98,24 +128,21 @@ class GitContext:
         and if we know the name of the
         """
         # the first thing is just a check or safety. generally this class should not know about a special dir
-        if self._local_dir == UNDERPIN_GIT_ROOT and is_empty_dir(self.local_repo_dir):
+        if self._local_dir == UNDERPIN_GIT_ROOT and self._repo_name not in list(
+            glob(UNDERPIN_GIT_ROOT)
+        ):
             logger.info(
-                f"Assuming you want to clone into the empty directory {self._local_dir}"
+                f"Assuming you want to clone into the directory {self._local_dir} which does not contain {self._repo_name}"
             )
-            self.clone()
-        else:
-            # print(existing_source_files)
-            logger.info(
-                f"Repo exists at {self._local_dir} - ensure local branch is the one we want and up to date"
-            )
-
-    def clone(self):
-        if self._branch == self.main_branch_name:
-            return self(f"git clone {self._repo}", cwd=self._local_dir)
-        return self(
-            f"git clone -b {self._branch} {self._repo}",
-            cwd=self._local_dir,
-        )
+            self(f"git clone {self._origin_uri}", cwd=self._local_dir)
+            # now we magically move into that directory
+            self._local_dir = f"{UNDERPIN_GIT_ROOT}/{self._repo_name}"
+        if self._branch != self._main_branch:
+            if self._branch not in self._branches:
+                self(f"git checkout -b {self._branch}")
+            else:
+                self(f"git checkout {self._branch}")
+            # check we are on the current branch or report badness
 
     def merge(
         self,
