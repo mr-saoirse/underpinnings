@@ -9,7 +9,7 @@ This simple thing is easy to test and then in the following scenarios we use sym
 - docker or K8s volume mounts to /HOME/.underpin/cloned/project.git/
 
 For example do
-ln -s /Users/sirsh/code/mr_saoirse/underpinnings ~/.underpin/cloned/underpinnings
+ln -s /Users/sirsh/code/mr_saoirse/underpinnings ~/.underpin/cloned/underpinnings.git
 
 """
 
@@ -23,7 +23,7 @@ from underpin import schema
 from underpin.utils.git import GitContext, app_changes
 from underpin.schema import ChangeSet
 from underpin import logger, UNDERPIN_GIT_ROOT, CONFIG_HOME
-from underpin.utils.io import run_command
+from underpin.utils.io import run_command, list_nested_files
 from underpin.utils import generate_markdown_table
 from json import loads as json_loads
 from glob import glob
@@ -81,8 +81,12 @@ def app_update(
     By default we do not need to inspect what happened at source and just commit whatever is in our branch
     But we leave some scaffolding here to think more about it
     """
+
+    # we dont really use this code path, for future use cases we may use this convention of using app-manifests for app folder
     if app_dir == "":
         app_dir = None
+    if app_dir is not None:
+        app_dir = app_dir.replace("apps", "app-manifests")
 
     # if not Path(CONFIG_HOME).is_file():
     #     UnderpinConfig.configure(source_repo, target_repo)
@@ -102,7 +106,7 @@ def app_update(
         # changes = DefaultPipeline(config).map_changes_to_target_changes(changes)
 
     target = GitContext(config.target_repo)
-    changes = target.get_changes() if not app_dir else source.sub_folders(app_dir)
+    changes = target.get_changes() if not app_dir else source.sub_files(app_dir)
     logger.info(f"target app changes: {changes}")
     return target.merge(
         pr_change_note=generate_markdown_table(app_actions, "Applied Underpin Actions")
@@ -143,7 +147,7 @@ def app_run(
     """
     checkout the target repo to which we send manifests
     """
-    with GitContext(config.target_repo, branch=sha or "test") as target:
+    with GitContext(config.target_repo, branch=sha or "test1234") as target:
         target.checkout()
 
     """
@@ -155,102 +159,12 @@ def app_run(
         we can navigate anywhere into a git repo and get changes or all apps from that root
         this is a simple strategy to test two different modes which in practice may have different entrypoints
         """
-        changes = source.get_changes() if not app_dir else source.sub_folders(app_dir)
+        changes = source.get_changes() if not app_dir else source.sub_files(app_dir)
         pipeline = DefaultPipeline(config)
         pipeline(changes)
 
     # this output should by pydantic->json and collected in argo workflow etc.
     return {"job deets"}
-
-
-# @template_app.command("create")
-# def template_app_validate(
-#     name: Optional[str] = typer.Option(None, "--name", "-n"),
-# ):
-#     pass
-
-
-# @app.command("init")
-# def app_init(
-#     target_branch: Optional[str] = typer.Option(None, "--target_branch", "-b"),
-#     target_local_dir: Optional[str] = typer.Option(None, "--target_out_dir", "-o"),
-# ):
-#     """
-#     underpin generates a target repo away from the current repo to write files into and commit
-#     the target branch can be auto-generated with a hash in practice
-#     """
-
-#     # TODO: if branch exists handle this case properly
-
-#     if not Path(CONFIG_HOME).is_file():
-#         UnderpinConfig.configure()
-
-#     config = UnderpinConfig(CONFIG_HOME)
-#     target_branch = target_branch or "bot.add_manifests"
-#     logger.debug(config._data)
-
-#     with GitContext(config.target_repo, cwd=UNDERPIN_GIT_ROOT) as g:
-#         g.create_branch(target_branch)
-#         logger.info(f"create target repo to {g}")
-#         # if we need to do anything to the target we can here
-
-
-@app.command("run_old")
-def app_run_old(
-    sha: Optional[str] = typer.Option(None, "--sha-hash", "-h"),
-    app_dir: Optional[str] = typer.Option(None, "--app-dir", "-d"),
-    source_repo: Optional[str] = typer.Option(None, "--source-repo", "-s"),
-    target_repo: Optional[str] = typer.Option(None, "--target-repo", "-t"),
-    # --all option
-):
-    """
-    Running without any parameters loads context from a config file which is good for testing or having presets for a particular repo
-
-    However a typical mode is to send parameters in a workflow and in that context we configure the source and target repo in the runner
-    and then we pass the app job as json
-
-    The sha/hash is passed into any job for labeling images
-    """
-
-    # try not to require a job. the data should be in source control and nowhere else - we just to point to the location
-    # if job:
-    #     job = json_loads(job)
-    #     logger.info(f"Loaded job {job}")
-
-    config = UnderpinConfig(
-        CONFIG_HOME, source_repo=source_repo, target_repo=target_repo
-    )
-
-    """
-    the default pipeline could be swapped for other pipelines in future 
-    but it may be we only need one pipeline and managed templates
-    """
-    pipeline = DefaultPipeline(config)
-
-    target = GitContext(config.target_repo, cwd=UNDERPIN_GIT_ROOT)
-    # running from scratch - generate the branch for the target
-    target.ensure_on_branch(sha)
-    # TODO verify target branch is correct e.g. not main
-
-    # first validate the app dir that is passed in - its either an app or current working dir
-    if not GitContext(config.source_repo, cwd=app_dir).is_valid:
-        # if that is not valid, which will be the case for containerized contexts, then check the mount
-        if GitContext(config.source_repo, cwd=UNDERPIN_MOUNTED_SOURCE_DIR).is_valid:
-            app_dir = UNDERPIN_MOUNTED_SOURCE_DIR
-        else:
-            raise Exception(
-                "No valid app context - must operate from or mount the source repository that was configured"
-            )
-
-    # the normal context is to just pass an empty or valid app dir but its assumed its the source
-    with GitContext(config.source_repo, cwd=app_dir) as g:
-        changes = g.get_changes()
-        logger.debug(f"changed files {changes}")
-        pipeline(changes)  # or --all
-
-    # we do not necessarily added until just before commit but this is good for change tracing after each step
-    additions = target.add_all()
-    logger.debug(f"Added target changes {additions}")
 
 
 @app.command("test")

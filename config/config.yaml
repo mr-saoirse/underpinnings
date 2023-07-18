@@ -4,7 +4,7 @@ metadata:
   #the namespace can sometimes be inferred from app path
   namespace: default
   #all apps are assumed to live under this root and are transferred into app-manifests respecting the app folder structure from here
-  source-root: samples
+  source-root: apps
   #the app uri from the source root
   app-uri: default/deployment
 #each app can override this - some apps can build a docker image that is based from this. could be monorepo image or python base etc.

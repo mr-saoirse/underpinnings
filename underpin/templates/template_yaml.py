@@ -63,7 +63,7 @@ patches:
     - op: replace
         path: /spec/template/spec/containers/0/resources/requests/memory
         value: {template.memory}
-
+#comments
 images:
 - name: {template.image}
   newTag: "{template.tag}"

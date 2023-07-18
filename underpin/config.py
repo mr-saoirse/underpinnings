@@ -1,6 +1,6 @@
 import yaml
 from pathlib import Path
-from underpin import logger, CONFIG_HOME
+from underpin import logger, CONFIG_HOME, UNDERPIN_APP_ROOT, UNDERPIN_GIT_ROOT
 from underpin.utils.io import write
 
 
@@ -23,12 +23,16 @@ class UnderpinConfig:
             self._data = yaml.safe_load(f)
         if "repos" not in self._data:
             self._data["repos"] = {}
+            self._data["metadata"] = {"source_root": UNDERPIN_APP_ROOT}
 
         if source_repo:
             self._data["source"] = source_repo
         if target_repo:
             self._data["target"] = source_repo
 
+        if not Path(UNDERPIN_GIT_ROOT):
+            logger.debug(f"Ensuring the git root exists at {UNDERPIN_GIT_ROOT}")
+            Path(UNDERPIN_GIT_ROOT).mkdir(exist_ok=True)
         # rewrite config
 
     @staticmethod
@@ -52,18 +56,16 @@ class UnderpinConfig:
 
     def match_app_changes(self, changes):
         prefix = self.app_root
-
         # TODO: this should be much better and agnostic to patterns of /. A generalized configuration schema is needed here at the system level (UTEST)
         changes = [
             c for c in changes if prefix in c and f"{prefix}/" == c[: len(f"{prefix}/")]
         ]
         changes = set([str(Path(c).parent) for c in changes if Path(c).is_file()])
-
         return changes
 
     @property
     def app_root(self):
-        prefix = self._data.get("metadata", {}).get("source-root")
+        prefix = self._data.get("metadata", {}).get("source-root", "apps")
         return prefix
 
     @property

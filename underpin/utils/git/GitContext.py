@@ -3,12 +3,14 @@ import subprocess
 from typing import Any
 from underpin import logger, UNDERPIN_GIT_ROOT
 from underpin.utils import split_string_with_quotes
-from ..io import list_nested_folders
+from ..io import list_nested_folders, list_nested_files
 from glob import glob
 
 
 class GitContext:
-    def __init__(self, origin_uri, branch=None, main_branch="main", **kwargs) -> None:
+    def __init__(
+        self, origin_uri, branch=None, main_branch="main", cwd=None, **kwargs
+    ) -> None:
         """
         The git context is expected to initialize into a location where the origin repo has already been cloned
         This could be
@@ -32,17 +34,27 @@ class GitContext:
         self._repo_name = self._origin_uri.split("/")[-1].split(".")[0]
 
         dirs = [f for f in glob(f"{UNDERPIN_GIT_ROOT}/*") if self._repo_name in f]
-        if len(dirs) != 1:
+        if len(dirs) > 1:
             raise Exception(
                 f"Multiple matching repos in the UNDERPIN ROOT not currently supported - there can only be one repo matching {self._repo_name} or {self._repo_name}.git but found {dirs}"
+            )
+        if len(dirs) == 0:
+            logger.warning(
+                f"Did not find a match for { self._repo_name} in {UNDERPIN_GIT_ROOT} only the folders {glob(f'{UNDERPIN_GIT_ROOT}/*')}"
             )
 
         self._local_dir = (
             dirs[0] if len(dirs) else f"{UNDERPIN_GIT_ROOT}/{self._repo_name}"
         )
+        if cwd:
+            # this is to move into a sub directory such as apps/default/some_app
+            self._local_dir = f"{self._local_dir}/{cwd}"
+
         logger.info(
             f"Assumed local directory {self._local_dir} for repo {self._origin_uri}"
         )
+        # if not Path.exists(self.local_repo_dir)
+
         self._branch = branch or main_branch
         self._branches = []
         try:
@@ -54,6 +66,9 @@ class GitContext:
 
     def sub_folders(self, dir):
         return list(list_nested_folders(dir))
+
+    def sub_files(self, dir):
+        return list(list_nested_files(dir))
 
     def __call__(self, command: str, cwd=None) -> Any:
         return self._run_command(command, cwd=cwd or self._local_dir)
@@ -82,7 +97,7 @@ class GitContext:
         """ """
         cleaner = lambda s: s.replace("*", "").strip()
         data = self.run_command_list_result("git branch --list")
-        self._current_branch = [cleaner(d) for d in data if "*" in d]
+        self._current_branch = [cleaner(d) for d in data if "*" in d][0]
         self._branches = [cleaner(d) for d in data]
         self._current_repo = self.run_command_single_result(
             "git config --get remote.origin.url"
@@ -110,13 +125,14 @@ class GitContext:
 
     def get_changes(self, prefix=None, against_origin=False):
         r = (
-            self("git diff --name-only main")
+            self("git diff --name-only")
             if not against_origin
             else self("git diff --name-only origin/main")
         )
         changes = r["data"]
+        changes = [c for c in changes if c != ""]
         if prefix:
-            return [c for c in changes if c[: len(prefix)] == prefix]
+            return [c for c in changes if c[: len(prefix)] == prefix if c != ""]
         return changes
 
     def ensure_branch(self, branch):
@@ -128,21 +144,31 @@ class GitContext:
         and if we know the name of the
         """
         # the first thing is just a check or safety. generally this class should not know about a special dir
-        if self._local_dir == UNDERPIN_GIT_ROOT and self._repo_name not in list(
-            glob(UNDERPIN_GIT_ROOT)
-        ):
+        print(self._local_dir)
+        if not Path(self._local_dir).exists():
+            # normally we do this in a fresh volume
             logger.info(
-                f"Assuming you want to clone into the directory {self._local_dir} which does not contain {self._repo_name}"
+                f"Assuming you want to clone into the directory {UNDERPIN_GIT_ROOT} which does not contain {self._repo_name}"
             )
-            self(f"git clone {self._origin_uri}", cwd=self._local_dir)
+            self(f"git clone {self._origin_uri}", cwd=UNDERPIN_GIT_ROOT)
             # now we magically move into that directory
             self._local_dir = f"{UNDERPIN_GIT_ROOT}/{self._repo_name}"
+        else:
+            self(f"git checkout main -f")
+            self(f"git fetch")
+            self(f"git pull")
+
         if self._branch != self._main_branch:
             if self._branch not in self._branches:
                 self(f"git checkout -b {self._branch}")
             else:
                 self(f"git checkout {self._branch}")
+                self("git rebase main")
+            # rebase any changes from main - often this is a void op
+            #
             # check we are on the current branch or report badness
+
+        logger.info(f"Checked out repo in {self._local_dir} on branch {self._branch}")
 
     def merge(
         self,
@@ -154,21 +180,25 @@ class GitContext:
         TODO: this can fail if there is an open /bad PR already so we need to see what to do about that.
         Typically it will mean making sure we got latest from main
         """
+
+        if pr_change_note == "":
+            pr_change_note = "No note provided"
         logger.info(f"Committing from branch {self._current_branch}")
-        self.add_all()
+        self.commit_all()
         # TODO:> todo determine what branch we are actually meaning to be on
         self(f"git rebase origin/{self._main_branch}")
 
         # TODO: here we assume the provider is github so we need to generalize this part
-        self("git push origin bot.add_manifests")
+        self(f"git push origin {self._current_branch}")
         self(f"""gh pr create --title "{pr_name}" --body "{pr_change_note}" """)
         self("gh pr merge --auto --rebase")
         logger.info(f"Pushed pr [{pr_name}] and auto merged (pending checks)")
 
-    def commit_all(self):
+    def commit_all(self, message=None):
         message = message or "automated commit"
         self("git add .")
-        self(f'git commit -m "{message}"')
+        chk = self(f'git commit -m "{message}"')
+        # TODO: check if managed to commit the changes
         return self.get_changes()
 
     def run_command_single_result(self, command):

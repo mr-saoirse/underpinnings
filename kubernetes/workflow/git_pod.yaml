@@ -1,0 +1,32 @@
+#kubectl create secret generic git-cred   --from-file=ssh=$HOME/.ssh/id_rsa   --from-file=known_hosts=$HOME/.ssh/known_hosts -n argo
+apiVersion: v1
+kind: Pod
+metadata:
+  name: syncrepo-volume-pod-test
+spec:
+  containers:
+    - image: k8s.gcr.io/git-sync:v3.1.6
+      args:
+        - "--repo=git@github.com:mr-saoirse/underpinnings.git"
+        - "--root=/workdir/res"
+        - "--branch=main"
+        - "--wait=1"
+        - "--max-sync-failures=3"
+        - "--timeout=200"
+        - "--ssh"
+        - "--one-time"
+      name: git-data
+      volumeMounts:
+        - name: repo-root
+          mountPath: /workdir ##
+        - name: git-secret
+          mountPath: /etc/git-secret
+  volumes:
+    - name: repo-root
+      emptyDir: {}
+    - name: git-secret
+      secret:
+        defaultMode: 256
+        secretName: git-cred # your-ssh-key
+  securityContext:
+    runAsUser: 0 # to allow read of ssh key

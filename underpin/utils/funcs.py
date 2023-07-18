@@ -4,7 +4,7 @@ import re
 def split_string_with_quotes(string):
     pattern = r'"([^"]*)"'
     quoted_substrings = re.findall(pattern, string)
-    placeholder = "<<<<  >>>>"
+    placeholder = "<<<<>>>>"
     modified_string = re.sub(pattern, placeholder, string)
     split_parts = modified_string.split()
     result = []

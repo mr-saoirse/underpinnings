@@ -3,7 +3,8 @@
 
 #argo template lint kubernetes/workflow/test_step.yaml
 # 1. make sure that we have the secret for the repo added to the namespace
-# kubectl create secret generic git-creds   --from-file=ssh=$HOME/.ssh/id_rsa   --from-file=known_hosts=$HOME/.ssh/known_hosts -n argo
+# kubectl create secret generic git-cred   --from-file=ssh=$HOME/.ssh/id_rsa   --from-file=known_hosts=$HOME/.ssh/known_hosts -n argo
+# kubectl create secret generic git-creds    --from-file=ssh=$HOME/.ssh/mr-saoirse --from-file=id_rsa=$HOME/.ssh/mr-saoirse --from-file=id_rsa.pub=$HOME/.ssh/mr-saoirse.pub   --from-file=known_hosts=$HOME/.ssh/known_hosts -n argo
 # 2. build a test version of underpin to just accept params and print them
 apiVersion: argoproj.io/v1alpha1
 kind: WorkflowTemplate
@@ -17,7 +18,7 @@ spec:
   arguments:
     parameters:
       - name: source-repo
-        value: https://github.com/mr-saoirse/underpinnings.git
+        value: git@github.com:mr-saoirse/underpinnings.git
       - name: target-repo
         value: git@github.com:mr-saoirse/cloud-stack.git
       - name: branch
@@ -27,23 +28,25 @@ spec:
       - name: app-jobs
         value: |-
           [
-            {"app_dir" : "default/deployment_minimal"}
+            {"app_dir" : "apps/default/deployment_minimal"}
           ]
   entrypoint: pipeline
   # #prepare a volume for the entire workflow
   volumeClaimTemplates:
     - metadata:
-        name: app-dir
+        name: source-dir
       spec:
         accessModes: ["ReadWriteOnce"]
         resources:
           requests:
             storage: 1Gi
-  # #mount secrets for the workflow
+  #use for git-sync ssh
   volumes:
-    - name: app-dir
-      emptyDir: {}
     - name: git-secret
+      secret:
+        defaultMode: 256
+        secretName: git-cred # your-ssh-key
+    - name: git-secret-source
       secret:
         defaultMode: 256
         secretName: git-creds # your-ssh-key
@@ -62,7 +65,7 @@ spec:
                 - name: action
                   value: "run"
                 - name: app-dir
-                  value: "{{item.app_dir}}/apps"
+                  value: "{{item.app_dir}}"
         - - name: merge
             template: underpin
             arguments:
@@ -71,40 +74,39 @@ spec:
                   value: "update"
                 - name: app-dir
                   value: ""
+
     - name: check-repo
       container:
         image: alpine:latest
         command: [sh, -c]
         args:
           [
-            "echo getting message from volume; touch /app/hi.txt; ls mnt ; echo --------- ;  ls root ; echo --------- ;ls /app/; echo --------- ;ls /app/underpinnings.git/  > ls.txt; cat ls.txt;",
+            "echo getting files from volume; ls /root/ mkdir /root/.underpin/cloned/test; touch /root/.underpin/cloned/test/hi.txt;  echo --------- ;  ls /root/.underpin  ; echo -----cloned---- ;ls /root/.underpin/cloned ; echo ----underpinnings----- ;ls /root/.underpin/cloned/underpinnings.git/  > ls.txt; cat ls.txt;",
           ]
         volumeMounts:
-          - name: app-dir
-            mountPath: /app ##
-          # - name: git-secret
-          #   mountPath: /etc/git-secret ##
+          - name: source-dir
+            mountPath: /root/.underpin/
 
-      # #this is the git fetch magic as an init container in the first step
+      #this is the git fetch magic as an init container in the first step
       initContainers:
         - image: k8s.gcr.io/git-sync:v3.1.6
           args:
             - "--repo={{workflow.parameters.source-repo}}"
-            - "--wait=1200"
+            - "--root=/root/.underpin/cloned/"
+            - "--branch=main"
+            - "--wait=5"
             - "--max-sync-failures=3"
             - "--timeout=200"
-            - "--root=/app/"
-            - "--branch=main"
+            - "--ssh"
             - "--one-time"
           name: git-data
           volumeMounts:
-            - name: app-dir
-              mountPath: /app ##
+            - name: source-dir
+              mountPath: /root/.underpin/
             - name: git-secret
               mountPath: /etc/git-secret
-
-      # securityContext:
-      #   runAsUser: 0 # to allow read of ssh key
+      securityContext:
+        runAsUser: 0 # to allow read of ssh key
 
     - name: underpin
       inputs:
@@ -133,15 +135,9 @@ spec:
             "--target-repo",
             "{{ workflow.parameters.target-repo }}",
           ]
-
         volumeMounts:
-          - name: app-dir
+          - name: source-dir
             #its a bit funky to mount right into the repo but will do this for now
-            mountPath: /root/.underpin ##
-          - name: git-secret
-            mountPath: /etc/git-secret ##
-
-#the APP dir is ALWAYS STRIPPED FROM THE HEAD
-#the head is always UNDERPIN_GIT_HOME
-#the source and target repos are assumed a.git and b.git and are injected into the full path in the resolvers
-#
+            mountPath: /root/.underpin/
+          - name: git-secret-source
+            mountPath: /root/.ssh/

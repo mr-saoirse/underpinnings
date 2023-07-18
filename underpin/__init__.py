@@ -4,5 +4,9 @@ from .utils.io import read
 from pathlib import Path
 import os
 
-UNDERPIN_GIT_ROOT = f"{Path.home()}/.underpin/cloned"
-CONFIG_HOME = f"{Path.home()}/.underpin/config.yaml"
+# "/mnt/vol"  # Path.home() #<-todo env var or default to home. in K8s assume its mnt vol
+HOME = Path.home()
+
+UNDERPIN_GIT_ROOT = f"{HOME}/.underpin/cloned"  # f"{Path.home()}/.underpin/cloned"
+CONFIG_HOME = f"{HOME}/.underpin/config.yaml"
+UNDERPIN_APP_ROOT = "apps"
