@@ -1,82 +1,174 @@
-import subprocess
-from underpin import logger
 from pathlib import Path
-from ..io import is_empty_dir
+import subprocess
+from typing import Any
+from underpin import logger, UNDERPIN_GIT_ROOT
 from underpin.utils import split_string_with_quotes
-
-
-def run_command(command, cwd=None):
-    # this does not always work but we are using this convention
-    options = split_string_with_quotes(command)
-    logger.debug(f"running command {command} in {cwd}")
-
-    process = subprocess.Popen(
-        options, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=cwd
-    )
-
-    status = "ok"
-    out, err = process.communicate()
-
-    if process.returncode and err:
-        out = err
-        status = "error"
-        logger.warning(f"process-> {out}")
-    elif out:
-        logger.debug(out)
-
-    return {"status": status, "data": out.decode().split("\n")}
-
-
-def _branches(data):
-    """
-    category of temp helpers while we structure out command interface for git commands
-    """
-    return [d.replace("*", "").strip() for d in data]
+from ..io import list_nested_folders, list_nested_files
+from glob import glob
 
 
 class GitContext:
-    # for testing using the cloned but this should be null and passed in
-    def __init__(self, repo, branch=None, cwd=None, main_branch="main") -> None:
+    def __init__(
+        self, origin_uri, branch=None, main_branch="main", cwd=None, **kwargs
+    ) -> None:
         """
-        current work directory is current
+        The git context is expected to initialize into a location where the origin repo has already been cloned
+        This could be
+        - a mounted /app folder
+        - a local dev branch
+
+        origin uri can be anywhere in the context of the the git repo
+        it is expected we will also want to define a default apps folder under the root of the repo
+        the apps folder can be a sub folder of the apps
+
+        For the target repo pattern, we can also clone into a target location has a special case
+        we put a lock on this use case whereby we will only clone into HOME/.underpin/cloned
+
+        local_dir: this is the parent directory of the repo ALWAYS
+                   we can reproduce the full path as CWD/repo_name
+        we can always be anywhere under the git repo
+
         """
-        logger.info(f"Enter repo context {repo} -> CWD({cwd or 'local'})")
-        self._cwd = cwd
-        self._repo = repo
-        # this is the desired not the actual necessary
-        self._branch = branch or main_branch
-        # todo we can discover this
         self._main_branch = main_branch
-        self._changes = []
-        self._repo_name = Path(repo).name.split(".")[0]
-        # when we are not specifying a current working directory its because our local is it
-        self._local_repo_dir = f"{self._cwd}/{self._repo_name}" if self._cwd else None
-        self._set_branch_info()
+        self._origin_uri = origin_uri
+        self._repo_name = self._origin_uri.split("/")[-1].split(".")[0]
 
-    def add_all(self, message=None):
-        message = message or "automated commit"
-        self("git add .")
-        self(f'git commit -m "{message}"')
+        dirs = [f for f in glob(f"{UNDERPIN_GIT_ROOT}/*") if self._repo_name in f]
+        if len(dirs) > 1:
+            raise Exception(
+                f"Multiple matching repos in the UNDERPIN ROOT not currently supported - there can only be one repo matching {self._repo_name} or {self._repo_name}.git but found {dirs}"
+            )
+        if len(dirs) == 0:
+            logger.warning(
+                f"Did not find a match for { self._repo_name} in {UNDERPIN_GIT_ROOT} only the folders {glob(f'{UNDERPIN_GIT_ROOT}/*')}"
+            )
 
-        return self.get_changes()
+        self._local_dir = (
+            dirs[0] if len(dirs) else f"{UNDERPIN_GIT_ROOT}/{self._repo_name}"
+        )
+        if cwd:
+            # this is to move into a sub directory such as apps/default/some_app
+            self._local_dir = f"{self._local_dir}/{cwd}"
 
-    def _set_branch_info(self):
-        data = self("git branch --list")["data"]
+        logger.info(
+            f"Assumed local directory {self._local_dir} for repo {self._origin_uri}"
+        )
+        # if not Path.exists(self.local_repo_dir)
+
+        self._branch = branch or main_branch
         self._branches = []
-        self._current_branch = None
-        for d in data:
-            is_current = "*" in d
-            self._branches.append(d.replace("*", "").strip())
-            if is_current:
-                self._current_branch = self._branches[-1]
+        try:
+            self._repo_info = self._get_repo_info()
+        except:
+            logger.warning(
+                f"Unable to get the repo info in {self._local_dir}. You may need to clone or change to a valid local directory context"
+            )
 
-    def get_changes(self, against_origin=False):
-        ans = (
-            self("git diff --name-only main")
+    def sub_folders(self, dir):
+        return list(list_nested_folders(dir))
+
+    def sub_files(self, dir):
+        return list(list_nested_files(dir))
+
+    def __call__(self, command: str, cwd=None) -> Any:
+        return self._run_command(command, cwd=cwd or self._local_dir)
+
+    # def __call__(self, command):
+    #     return run_command(command, cwd=self._local_repo_dir)
+    def __enter__(self):
+        """
+        this is reserved for when we want to specifically enter a checkout state
+        - for target this is safe in that we create repos and branches in the underpin home
+        - but for the source repo actually its assumed we are already in the correct context and this is for validation
+        """
+        # checkout depends on mode
+        # self.checkout()
+
+        # if not git context raise error
+
+        return self
+
+    def __exit__(self, exc_type, exc_value, exc_traceback):
+        """ """
+
+        return False
+
+    def _get_repo_info(self):
+        """ """
+        cleaner = lambda s: s.replace("*", "").strip()
+        data = self.run_command_list_result("git branch --list")
+        self._current_branch = [cleaner(d) for d in data if "*" in d][0]
+        self._branches = [cleaner(d) for d in data]
+        self._current_repo = self.run_command_single_result(
+            "git config --get remote.origin.url"
+        )
+
+        self._git_root_folder = self.run_command_single_result(
+            "git rev-parse --show-topleveloplevel"
+        )
+        self._sha = self.run_command_single_result("git rev-parse HEAD ")
+        self._changes = self.get_changes()
+
+        return {}
+
+    @property
+    def current_repo(self):
+        return self._current_repo
+
+    @property
+    def current_branch(self):
+        return self._current_branch
+
+    @property
+    def local_repo_dir(self):
+        return self._git_root_folder
+
+    def get_changes(self, prefix=None, against_origin=False):
+        r = (
+            self("git diff --name-only")
             if not against_origin
             else self("git diff --name-only origin/main")
         )
-        return ans["data"]
+        changes = r["data"]
+        changes = [c for c in changes if c != ""]
+        if prefix:
+            return [c for c in changes if c[: len(prefix)] == prefix if c != ""]
+        return changes
+
+    def ensure_branch(self, branch):
+        pass
+
+    def checkout(self):
+        """
+        We always have the parent root to where we clone things
+        and if we know the name of the
+        """
+        # the first thing is just a check or safety. generally this class should not know about a special dir
+        print(self._local_dir)
+        if not Path(self._local_dir).exists():
+            # normally we do this in a fresh volume
+            logger.info(
+                f"Assuming you want to clone into the directory {UNDERPIN_GIT_ROOT} which does not contain {self._repo_name}"
+            )
+            self(f"git clone {self._origin_uri}", cwd=UNDERPIN_GIT_ROOT)
+            # now we magically move into that directory
+            self._local_dir = f"{UNDERPIN_GIT_ROOT}/{self._repo_name}"
+        else:
+            self(f"git checkout main -f")
+            self(f"git fetch")
+            self(f"git pull")
+
+        if self._branch != self._main_branch:
+            if self._branch not in self._branches:
+                self(f"git checkout -b {self._branch}")
+            else:
+                self(f"git checkout {self._branch}")
+                self("git rebase main")
+            # rebase any changes from main - often this is a void op
+            #
+            # check we are on the current branch or report badness
+
+        logger.info(f"Checked out repo in {self._local_dir} on branch {self._branch}")
 
     def merge(
         self,
@@ -88,90 +180,56 @@ class GitContext:
         TODO: this can fail if there is an open /bad PR already so we need to see what to do about that.
         Typically it will mean making sure we got latest from main
         """
+
+        if pr_change_note == "":
+            pr_change_note = "No note provided"
         logger.info(f"Committing from branch {self._current_branch}")
-        self.add_all()
+        self.commit_all()
         # TODO:> todo determine what branch we are actually meaning to be on
         self(f"git rebase origin/{self._main_branch}")
 
         # TODO: here we assume the provider is github so we need to generalize this part
-        self("git push origin bot.add_manifests")
+        self(f"git push origin {self._current_branch}")
         self(f"""gh pr create --title "{pr_name}" --body "{pr_change_note}" """)
         self("gh pr merge --auto --rebase")
         logger.info(f"Pushed pr [{pr_name}] and auto merged (pending checks)")
 
-    def clone(self):
-        if self._branch == self.main_branch_name:
-            return run_command(f"git clone {self._repo}", cwd=self._cwd)
-        return run_command(
-            f"git clone -b {self._branch} {self._repo}",
-            cwd=self._cwd,
+    def commit_all(self, message=None):
+        message = message or "automated commit"
+        self("git add .")
+        chk = self(f'git commit -m "{message}"')
+        # TODO: check if managed to commit the changes
+        return self.get_changes()
+
+    def run_command_single_result(self, command):
+        r = self(command)
+        if r["status"] == "ok":
+            return r["data"][0]
+        raise Exception(f"Command failed {r['data']}")
+
+    def run_command_list_result(self, command):
+        r = self(command)
+        if r["status"] == "ok":
+            return r["data"]
+        raise Exception(f"Command failed {r['data']}")
+
+    def _run_command(self, command, cwd=None):
+        # this does not always work but we are using this convention
+        options = split_string_with_quotes(command)
+        logger.debug(f"running command {command} in {cwd}")
+
+        process = subprocess.Popen(
+            options, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=cwd
         )
 
-    def ensure_on_branch(self, branch_name, rebase_main=False):
-        """
-        This is setup to ensure s state - we may already be on the branch and we have an option to rebase
-        - either the branch does not exist and we make and switch
-        - the branch does exist and we switch
-        """
-        if branch_name != self._current_branch:
-            if branch_name in self._branches:
-                self(f"git checkout {branch_name}")
+        status = "ok"
+        out, err = process.communicate()
 
-            else:
-                r = self(f"git checkout -b {branch_name}")
-        if rebase_main:
-            self(f"git rebase origin/{self._main_branch}")
-        return self._current_branch
+        if process.returncode and err:
+            out = err
+            status = "error"
+            logger.warning(f"process-> {out}")
+        elif out:
+            logger.debug(out)
 
-    def create_branch(self, branch_name):
-        r = self(f"git checkout -b {branch_name}")
-        return r
-
-    def __call__(self, command):
-        return run_command(command, cwd=self._local_repo_dir)
-
-    def checkout(self):
-        """
-        checkout the branch and determine changes
-        this is done so underpin can generate templates for the changed file
-        """
-
-        # could rename this to managed i.e. we have a local repo somewhere and we are managing it
-        # when this is empty, it means we are in a normal git context "user managed" - we should make these abstractions cleaner
-
-        if self._local_repo_dir:
-            if is_empty_dir(self._local_repo_dir):
-                logger.info(
-                    f"Assuming you want to clone into the empty directory {self._cwd}"
-                )
-                self.clone()
-            else:
-                # print(existing_source_files)
-                logger.info(
-                    f"Repo exists at {self._local_repo_dir} - ensure local branch is the one we want and up to date"
-                )
-
-        return self.branch
-
-    @property
-    def main_branch_name(self):
-        return self._main_branch
-
-    @property
-    def branch(self):
-        return self._current_branch
-
-    @property
-    def desired_branch(self):
-        return self._branch
-
-    def __enter__(self):
-        # checkout depends on mode
-        self.checkout()
-
-        return self
-
-    def __exit__(self, exc_type, exc_value, exc_traceback):
-        """ """
-
-        return False
+        return {"status": status, "data": out.decode().split("\n")}

@@ -24,4 +24,7 @@ RUN poetry install
 ENV PYTHONPATH "${PYTHONPATH}:/app"
 ENV PYTHONUNBUFFERED=0
 
+ENTRYPOINT [ "poetry", "run"  ]
+
 #docker tag underpinnings mrsaoirse/underpinnings
+#docker push mrsaoirse/underpinnings:tagname

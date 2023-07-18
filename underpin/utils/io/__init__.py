@@ -1,6 +1,17 @@
 import yaml
 from pathlib import Path
 import subprocess
+import glob
+
+
+def list_nested_files(dir):
+    for folder_path in glob.glob(dir + "/**/*", recursive=True):
+        yield folder_path
+
+
+def list_nested_folders(dir):
+    for folder_path in glob.glob(dir + "/**/", recursive=True):
+        yield folder_path
 
 
 def read(f):
